@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor solar — clima espacial NOAA</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#2a313c; --text:#e6edf3; --muted:#8b949e;
+    --ok:#3fb950; --g1:#d4c22a; --g2:#f0a020; --g3:#f06a1e; --g4:#e5383b; --g5:#b5179e;
+    --accent:#f5b83d; --blue:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(13,17,23,.95);backdrop-filter:blur(6px);z-index:5}
+  h1{font-size:20px;margin:0;display:flex;align-items:center;gap:10px}
+  h1 .sun{width:22px;height:22px;border-radius:50%;background:radial-gradient(circle,#ffe58a,#f5a524 60%,#c2410c);box-shadow:0 0 14px #f5a52499}
+  .meta{color:var(--muted);font-size:13px}
+  button{background:#21262d;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font:inherit;font-size:13px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.on{border-color:var(--ok);color:var(--ok)}
+  main{padding:18px 20px 40px;max-width:1300px;margin:0 auto}
+  .grid{display:grid;gap:14px}
+  .cards{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+  .two{grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr))}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+  .panel h2{font-size:15px;margin:0 0 4px}
+  .panel .sub{color:var(--muted);font-size:12.5px;margin-bottom:10px}
+  .card .lbl{color:var(--muted);font-size:12.5px}
+  .card .val{font-size:30px;font-weight:700;margin:2px 0;font-variant-numeric:tabular-nums}
+  .card .desc{font-size:13px}
+  .card{border-left:5px solid var(--line)}
+  section{margin-top:14px}
+  .chart{width:100%;position:relative}
+  .chart svg{display:block;width:100%;overflow:visible}
+  .tip{position:absolute;pointer-events:none;background:#000d;border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;white-space:nowrap;display:none;z-index:3}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-weight:700;font-size:12.5px;color:#000}
+  .alert{border-bottom:1px solid var(--line);padding:8px 0}
+  .alert summary{cursor:pointer;list-style:none}
+  .alert summary::-webkit-details-marker{display:none}
+  .alert pre{white-space:pre-wrap;font-size:12.5px;color:#c9d1d9;background:#0d1117;padding:10px;border-radius:8px;margin:8px 0 0}
+  .when{color:var(--muted);font-size:12.5px}
+  .fc{display:grid;grid-template-columns:auto repeat(3,1fr);gap:6px 10px;font-size:13.5px}
+  .fc div{padding:4px 0;border-bottom:1px solid var(--line)}
+  .fc .h{color:var(--muted);font-weight:600}
+  .err{color:#ff7b72;font-size:13px}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12.5px;color:var(--muted);margin-top:6px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  .help{font-size:13.5px;color:#c9d1d9}
+  .help b{color:var(--text)}
+  .filters{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+  .filters button.sel{border-color:var(--accent);color:var(--accent)}
+  #banner{display:none;margin:0 0 14px;padding:12px 16px;border-radius:12px;font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="sun"></span>Monitor solar</h1>
+  <div class="meta" id="updated">Cargando datos de la NOAA…</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button id="btnRefresh">Actualizar ahora</button>
+    <button id="btnNotify">Activar avisos</button>
+  </div>
+</header>
+
+<main>
+  <div id="banner"></div>
+
+  <div class="grid cards">
+    <div class="panel card" id="cardR"><div class="lbl">Apagones de radio (R)</div><div class="val">—</div><div class="desc">Por llamaradas</div></div>
+    <div class="panel card" id="cardS"><div class="lbl">Tormenta de radiación (S)</div><div class="val">—</div><div class="desc">Protones solares</div></div>
+    <div class="panel card" id="cardG"><div class="lbl">Tormenta geomagnética (G)</div><div class="val">—</div><div class="desc">Lo que afecta redes eléctricas</div></div>
+    <div class="panel card" id="cardKp"><div class="lbl">Índice Kp actual</div><div class="val">—</div><div class="desc"></div></div>
+    <div class="panel card" id="cardX"><div class="lbl">Rayos X ahora</div><div class="val">—</div><div class="desc"></div></div>
+    <div class="panel card" id="cardSW"><div class="lbl">Viento solar</div><div class="val">—</div><div class="desc"></div></div>
+  </div>
+
+  <section class="grid two">
+    <div class="panel">
+      <h2>Rayos X del Sol (llamaradas) — últimas 24 h</h2>
+      <div class="sub">Satélite GOES, banda 0.1–0.8 nm. Cada pico que cruza una franja es una llamarada de esa clase.</div>
+      <div class="chart" id="chX"></div>
+    </div>
+    <div class="panel">
+      <h2>Índice Kp — 7 días y pronóstico</h2>
+      <div class="sub">Kp 5 o más = tormenta geomagnética (G1 a G5). Las barras con borde punteado son pronóstico.</div>
+      <div class="chart" id="chKp"></div>
+      <div class="legend">
+        <span><i style="background:var(--ok)"></i>0–3 tranquilo</span><span><i style="background:#8fbf3a"></i>4 activo</span>
+        <span><i style="background:var(--g1)"></i>5 G1</span><span><i style="background:var(--g2)"></i>6 G2</span>
+        <span><i style="background:var(--g3)"></i>7 G3</span><span><i style="background:var(--g4)"></i>8 G4</span><span><i style="background:var(--g5)"></i>9 G5</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid two">
+    <div class="panel">
+      <h2>Viento solar en L1 — últimas 24 h</h2>
+      <div class="sub">Lo que llega a la Tierra en 15–60 min. Velocidad alta + Bz negativo sostenido = llegada de una CME / tormenta.</div>
+      <div class="chart" id="chSpeed"></div>
+      <div class="chart" id="chBz" style="margin-top:10px"></div>
+    </div>
+    <div class="panel">
+      <h2>Pronóstico NOAA — próximos 3 días</h2>
+      <div class="sub">Probabilidades oficiales del SWPC.</div>
+      <div id="forecast" class="fc"></div>
+      <div id="probs" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <section class="grid two">
+    <div class="panel">
+      <h2>Llamaradas de los últimos 7 días</h2>
+      <div class="filters" id="flareFilter">
+        <button data-f="M" class="sel">M y X</button><button data-f="C">C, M y X</button><button data-f="all">Todas</button>
+      </div>
+      <div id="flares" style="max-height:420px;overflow:auto"></div>
+    </div>
+    <div class="panel">
+      <h2>Alertas, avisos y vigilancias oficiales</h2>
+      <div class="sub">Mensajes emitidos por el SWPC (toca uno para leer el texto completo).</div>
+      <div id="alerts" style="max-height:420px;overflow:auto"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="historial">
+    <h2>Historial guardado en este equipo</h2>
+    <div class="sub">Cada actualización se suma al historial sin duplicar. La NOAA publica hasta 7 días hacia atrás, así que basta con abrir esta página al menos una vez por semana para no perder datos. Los CSV usan «;» y coma decimal para abrirlos directo en Excel.</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <button id="btnFolder">Elegir carpeta para los CSV</button>
+      <span class="meta" id="histStatus">Cargando historial…</span>
+    </div>
+    <div style="overflow:auto"><table id="histTable"></table></div>
+  </section>
+
+  <section class="panel help">
+    <h2>Cómo leer esto</h2>
+    <p><b>Llamaradas (A, B, C, M, X):</b> cada letra es 10 veces más fuerte que la anterior. Las C son comunes; las M causan apagones de radio menores en el lado iluminado de la Tierra; las X son las grandes. Una llamarada por sí sola no tumba la red eléctrica: el riesgo viene si va acompañada de una <b>eyección de masa coronal (CME)</b> dirigida a la Tierra, que llega en 1 a 3 días.</p>
+    <p><b>Escala G (tormenta geomagnética):</b> es la que importa para redes eléctricas. G1–G2 son frecuentes y casi inofensivas; G4–G5 son severas (mayo 2024 fue G5). Un evento tipo Carrington estaría por encima de G5.</p>
+    <p><b>Viento solar:</b> lo mide una sonda a 1,5 millones de km. Si la velocidad salta de ~400 a más de 600 km/s y el Bz se vuelve fuertemente negativo (−10 nT o menos) por horas, la tormenta está entrando.</p>
+    <p class="meta">Datos: NOAA Space Weather Prediction Center (services.swpc.noaa.gov), dominio público. Se actualiza solo cada 5 minutos mientras la página esté abierta. Horas en hora de Colombia.</p>
+  </section>
+</main>
+
+<script>
+(() => {
+  const BASE = "https://services.swpc.noaa.gov/";
+  const URLS = {
+    scales:  "products/noaa-scales.json",
+    xray:    "json/goes/primary/xrays-1-day.json",
+    flares:  "json/goes/primary/xray-flares-7-day.json",
+    kp:      "products/noaa-planetary-k-index.json",
+    kpfc:    "products/noaa-planetary-k-index-forecast.json",
+    plasma:  ["products/solar-wind/plasma-1-day.json", "json/rtsw/rtsw_wind_1m.json", "products/solar-wind/plasma-2-hour.json"],
+    mag:     ["products/solar-wind/mag-1-day.json", "json/rtsw/rtsw_mag_1m.json", "products/solar-wind/mag-2-hour.json"],
+    alerts:  "products/alerts.json",
+    probs:   "json/solar_probabilities.json"
+  };
+  const REFRESH_MS = 5 * 60 * 1000;
+  const TZ = "America/Bogota";
+  const $ = id => document.getElementById(id);
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+  // ---------- utilidades ----------
+  function parseTime(s){
+    if (s == null) return null;
+    let t = String(s).trim().replace(" ", "T");
+    if (!/[zZ]|[+-]\d\d:?\d\d$/.test(t)) t += "Z";
+    const d = new Date(t);
+    return isNaN(d) ? null : d;
+  }
+  const fmt = (d, opt) => d ? d.toLocaleString("es-CO", Object.assign({timeZone: TZ}, opt || {day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit", hour12:false})) : "—";
+  // Convierte array-de-arrays (con encabezado) o array-de-objetos en objetos con claves en minúscula
+  function toRows(json){
+    if (!Array.isArray(json) || !json.length) return [];
+    if (Array.isArray(json[0])){
+      const h = json[0].map(x => String(x).toLowerCase());
+      return json.slice(1).map(r => Object.fromEntries(h.map((k,i)=>[k, r[i]])));
+    }
+    return json.map(o => Object.fromEntries(Object.entries(o).map(([k,v])=>[k.toLowerCase(), v])));
+  }
+  const num = v => { const n = parseFloat(v); return isFinite(n) ? n : null; };
+  const pick = (o, ...keys) => { for (const k of keys) if (o[k] !== undefined && o[k] !== null && o[k] !== "") return o[k]; return null; };
+
+  function fluxClass(f){
+    if (f == null || f <= 0) return "—";
+    const L = [["X",1e-4],["M",1e-5],["C",1e-6],["B",1e-7],["A",1e-8]];
+    for (const [c,b] of L) if (f >= b) return c + (f/b).toFixed(1);
+    return "A0.0";
+  }
+  const classColor = c => ({X:css("--g5"), M:css("--g3"), C:css("--g1"), B:"#6e7681", A:"#484f58"})[String(c||"")[0]] || "#484f58";
+  function kpColor(k){
+    if (k >= 9) return css("--g5"); if (k >= 8) return css("--g4"); if (k >= 7) return css("--g3");
+    if (k >= 6) return css("--g2"); if (k >= 5) return css("--g1"); if (k >= 4) return "#8fbf3a"; return css("--ok");
+  }
+  const scaleColor = n => [css("--ok"), css("--g1"), css("--g2"), css("--g3"), css("--g4"), css("--g5")][Math.max(0, Math.min(5, n|0))];
+  const kpToG = k => k >= 9 ? 5 : k >= 8 ? 4 : k >= 7 ? 3 : k >= 6 ? 2 : k >= 5 ? 1 : 0;
+
+  // Cada fuente puede tener rutas alternativas: se prueba una tras otra
+  async function getJSON(key){
+    const paths = [].concat(URLS[key]); let last;
+    for (const path of paths){
+      try {
+        const r = await fetch(BASE + path + "?_=" + Date.now(), {cache:"no-store"});
+        if (!r.ok) throw new Error(key + ": HTTP " + r.status);
+        const j = await r.json();
+        if (Array.isArray(j) && (j.length === 0 || (Array.isArray(j[0]) && j.length < 2))) throw new Error(key + ": vacío");
+        return j;
+      } catch(e){ last = e; }
+    }
+    throw last;
+  }
+  // Viento solar: si el archivo trae varias naves (DSCOVR/ACE), usa solo la activa y las últimas 24 h
+  function windRows(json){
+    let rows = toRows(json);
+    if (rows.some(r => r.active !== undefined)) rows = rows.filter(r => r.active === true || r.active === "true" || r.active === 1);
+    const cut = Date.now() - 864e5;
+    return rows.map(r => Object.assign(r, {_t: parseTime(r.time_tag)})).filter(r => r._t && +r._t >= cut).sort((a,b)=>a._t-b._t);
+  }
+
+  // ---------- gráficas SVG ----------
+  function chart(el, series, o){
+    o = Object.assign({height: 220, log:false, bands:[], zero:false, unit:""}, o);
+    el.innerHTML = "";
+    const all = series.flatMap(s => s.points).filter(p => p.v != null && p.t);
+    if (!all.length){ el.innerHTML = '<div class="err">Sin datos</div>'; return; }
+    const W = Math.max(280, el.clientWidth), H = o.height, m = {l:52, r:10, t:10, b:24};
+    const t0 = o.tMin || Math.min(...all.map(p=>+p.t)), t1 = o.tMax || Math.max(...all.map(p=>+p.t));
+    let y0 = o.yMin ?? Math.min(...all.map(p=>p.v)), y1 = o.yMax ?? Math.max(...all.map(p=>p.v));
+    if (o.log){ y0 = Math.log10(y0); y1 = Math.log10(y1); }
+    if (y0 === y1){ y0 -= 1; y1 += 1; }
+    const X = t => m.l + (t - t0) / (t1 - t0 || 1) * (W - m.l - m.r);
+    const Y = v => { const vv = o.log ? Math.log10(Math.max(v, 1e-12)) : v; return m.t + (1 - (vv - y0)/(y1 - y0)) * (H - m.t - m.b); };
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("height", H);
+    const add = (tag, attrs, text) => { const e = document.createElementNS(ns, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; svg.appendChild(e); return e; };
+    // franjas
+    for (const b of o.bands){
+      const ya = Y(b.to), yb = Y(b.from);
+      const top = Math.max(m.t, Math.min(ya, yb)), bot = Math.min(H - m.b, Math.max(ya, yb));
+      if (bot > top){ add("rect", {x:m.l, y:top, width:W-m.l-m.r, height:bot-top, fill:b.color, opacity:.10});
+        add("text", {x:W-m.r-4, y:top+13, "text-anchor":"end", fill:b.color, "font-size":12, "font-weight":700}, b.label); }
+    }
+    // ejes Y
+    const ticks = o.yTicks || (() => { const n = 4, arr = []; for (let i=0;i<=n;i++) arr.push(o.log ? Math.pow(10, y0 + (y1-y0)*i/n) : y0 + (y1-y0)*i/n); return arr; })();
+    for (const v of ticks){
+      const y = Y(v); if (y < m.t - 1 || y > H - m.b + 1) continue;
+      add("line", {x1:m.l, x2:W-m.r, y1:y, y2:y, stroke:css("--line"), "stroke-width":1});
+      add("text", {x:m.l-6, y:y+4, "text-anchor":"end", fill:css("--muted"), "font-size":11}, o.yFmt ? o.yFmt(v) : (Math.round(v*10)/10));
+    }
+    if (o.zero && y0 < 0 && y1 > 0) add("line", {x1:m.l, x2:W-m.r, y1:Y(0), y2:Y(0), stroke:"#8b949e", "stroke-dasharray":"4 3"});
+    // eje X
+    const span = t1 - t0, step = span > 3*864e5 ? 864e5 : span > 864e5 ? 6*36e5 : 3*36e5;
+    for (let t = Math.ceil(t0/step)*step; t <= t1; t += step){
+      const x = X(t);
+      add("line", {x1:x, x2:x, y1:m.t, y2:H-m.b, stroke:css("--line"), "stroke-width":.6});
+      add("text", {x, y:H-6, "text-anchor":"middle", fill:css("--muted"), "font-size":11},
+        fmt(new Date(t), step >= 864e5 ? {day:"2-digit", month:"short"} : {hour:"2-digit", minute:"2-digit", hour12:false}));
+    }
+    // series
+    for (const s of series){
+      if (s.bars){
+        const bw = Math.max(2, (W-m.l-m.r) / s.points.length * .8);
+        for (const p of s.points){ if (p.v == null) continue;
+          const r = add("rect", {x:X(+p.t)-bw/2, y:Y(p.v), width:bw, height:Math.max(1, Y(o.yMin ?? 0) - Y(p.v)), fill:p.color || s.color, rx:1.5,
+            opacity: p.dashed ? .45 : 1});
+          if (p.dashed){ r.setAttribute("stroke", p.color || s.color); r.setAttribute("stroke-dasharray", "3 2"); r.setAttribute("opacity", .6); }
+        }
+      } else {
+        let d = "", prev = null;
+        for (const p of s.points){ if (p.v == null){ prev = null; continue; }
+          const x = X(+p.t), y = Y(p.v);
+          d += (prev && (+p.t - prev) < (s.gap || 15*60e3) ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+          prev = +p.t; }
+        add("path", {d, fill:"none", stroke:s.color, "stroke-width":s.width || 1.6});
+      }
+    }
+    el.appendChild(svg);
+    // tooltip
+    const tip = document.createElement("div"); tip.className = "tip"; el.appendChild(tip);
+    const cursor = add("line", {x1:0, x2:0, y1:m.t, y2:H-m.b, stroke:"#c9d1d9", "stroke-width":1, opacity:0});
+    const main = series[0].points.filter(p => p.v != null);
+    function move(ev){
+      const rect = svg.getBoundingClientRect(), px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+      const sx = px * W / rect.width; const t = t0 + (sx - m.l) / (W - m.l - m.r) * (t1 - t0);
+      let best = null, bd = Infinity; for (const p of main){ const dd = Math.abs(+p.t - t); if (dd < bd){ bd = dd; best = p; } }
+      if (!best) return;
+      const x = X(+best.t); cursor.setAttribute("x1", x); cursor.setAttribute("x2", x); cursor.setAttribute("opacity", .5);
+      tip.textContent = fmt(best.t) + " · " + (o.tipFmt ? o.tipFmt(best) : best.v + o.unit);
+      tip.style.display = "block";
+      const left = x * rect.width / W; tip.style.left = Math.min(Math.max(0, left - 60), rect.width - 170) + "px"; tip.style.top = "0px";
+    }
+    svg.addEventListener("mousemove", move); svg.addEventListener("touchstart", move, {passive:true}); svg.addEventListener("touchmove", move, {passive:true});
+    svg.addEventListener("mouseleave", () => { tip.style.display = "none"; cursor.setAttribute("opacity", 0); });
+  }
+
+  // ---------- estado y avisos ----------
+  const state = {};
+  let notifyOn = false, audioCtx = null;
+  const SEEN_KEY = "monitorSolar.seen";
+  let seen; try { seen = new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || "[]")); } catch(e){ seen = new Set(); }
+  const saveSeen = () => { try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-400))); } catch(e){} };
+  let firstLoad = true;
+
+  function beep(){
+    try { if (!audioCtx) return; const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = 880; o.connect(g); g.connect(audioCtx.destination);
+      g.gain.setValueAtTime(.2, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(.001, audioCtx.currentTime + .8);
+      o.start(); o.stop(audioCtx.currentTime + .8); } catch(e){}
+  }
+  function notify(title, body){
+    if (!notifyOn) return;
+    beep();
+    try { if ("Notification" in window && Notification.permission === "granted") new Notification(title, {body}); } catch(e){}
+  }
+  function event(id, title, body){
+    if (seen.has(id)) return;
+    seen.add(id); saveSeen();
+    if (!firstLoad) notify(title, body);
+  }
+
+  $("btnNotify").onclick = async () => {
+    if (notifyOn){ notifyOn = false; $("btnNotify").classList.remove("on"); $("btnNotify").textContent = "Activar avisos"; return; }
+    try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); } catch(e){}
+    try { if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission(); } catch(e){}
+    notifyOn = true; $("btnNotify").classList.add("on"); $("btnNotify").textContent = "Avisos activos ✓"; beep();
+  };
+
+  // ---------- render ----------
+  function setCard(id, val, desc, color){
+    const c = $(id); c.querySelector(".val").textContent = val; if (desc != null) c.querySelector(".desc").textContent = desc;
+    c.style.borderLeftColor = color || css("--line"); c.querySelector(".val").style.color = color || "";
+  }
+  const SCALE_TXT = {R:["Sin apagones","Menor","Moderado","Fuerte","Severo","Extremo"], S:["Sin tormenta","Menor","Moderada","Fuerte","Severa","Extrema"], G:["Sin tormenta","Menor","Moderada","Fuerte","Severa","Extrema"]};
+
+  function renderScales(j){
+    const now = j["0"] || {};
+    for (const L of ["R","S","G"]){
+      const n = parseInt((now[L]||{}).Scale) || 0;
+      setCard("card"+L, L + n, SCALE_TXT[L][n] + (L==="G" ? " · afecta redes eléctricas" : L==="R" ? " · por llamaradas" : " · protones solares"), scaleColor(n));
+    }
+    // pronóstico
+    const days = ["1","2","3"].map(k => j[k] || {});
+    const lbl = d => { const dt = parseTime((d.DateStamp||"") + "T00:00:00Z"); return dt ? dt.toLocaleDateString("es-CO",{timeZone:"UTC", weekday:"short", day:"2-digit", month:"short"}) : "—"; };
+    const pct = v => v == null || v === "" ? "—" : v + " %";
+    let h = '<div class="h"></div>' + days.map(d => `<div class="h">${lbl(d)}</div>`).join("");
+    h += '<div>Apagón radio R1–R2 (llamarada M)</div>' + days.map(d => `<div>${pct((d.R||{}).MinorProb)}</div>`).join("");
+    h += '<div>Apagón radio R3+ (llamarada X)</div>' + days.map(d => `<div>${pct((d.R||{}).MajorProb)}</div>`).join("");
+    h += '<div>Tormenta de radiación S1+</div>' + days.map(d => `<div>${pct((d.S||{}).Prob)}</div>`).join("");
+    h += '<div>Tormenta geomagnética esperada</div>' + days.map(d => { const n = parseInt((d.G||{}).Scale)||0; return `<div><span class="tag" style="background:${scaleColor(n)}">G${n}</span></div>`; }).join("");
+    $("forecast").innerHTML = h;
+    // eventos de escala actual
+    for (const L of ["R","S","G"]){ const n = parseInt((now[L]||{}).Scale) || 0;
+      if (n >= 1) event(`scale-${L}${n}-${now.DateStamp}`, `Clima espacial: ${L}${n} en curso`, `${SCALE_TXT[L][n]} (escala NOAA ${L})`); }
+    banner(now);
+  }
+
+  function banner(now){
+    const g = parseInt((now.G||{}).Scale)||0, r = parseInt((now.R||{}).Scale)||0, s = parseInt((now.S||{}).Scale)||0;
+    const max = Math.max(g, r, s), b = $("banner");
+    if (max >= 3){
+      b.style.display = "block"; b.style.background = scaleColor(max); b.style.color = "#000";
+      b.textContent = `⚠ Actividad fuerte en curso: G${g} · R${r} · S${s}. Revisa las alertas oficiales abajo.`;
+    } else b.style.display = "none";
+  }
+
+  function renderXray(json){
+    const rows = toRows(json).filter(r => String(r.energy||"").includes("0.1-0.8"));
+    const pts = rows.map(r => ({t: parseTime(r.time_tag), v: num(pick(r, "flux", "observed_flux"))})).filter(p => p.t && p.v > 0).sort((a,b)=>a.t-b.t);
+    const last = pts[pts.length-1];
+    if (last){ const c = fluxClass(last.v); setCard("cardX", c, "Nivel actual · " + fmt(last.t, {hour:"2-digit", minute:"2-digit", hour12:false}), classColor(c)); }
+    const max = pts.reduce((a,p)=> p.v > a ? p.v : a, 0);
+    chart($("chX"), [{points:pts, color:css("--accent")}], {
+      log:true, yMin:1e-8, yMax:Math.max(1e-3, max*2), height:240,
+      yTicks:[1e-8,1e-7,1e-6,1e-5,1e-4,1e-3], yFmt:v => ({"-8":"A","-7":"B","-6":"C","-5":"M","-4":"X","-3":"X10"})[Math.round(Math.log10(v))] || "",
+      bands:[{from:1e-6,to:1e-5,color:css("--g1"),label:"C"},{from:1e-5,to:1e-4,color:css("--g3"),label:"M"},{from:1e-4,to:1e-2,color:css("--g5"),label:"X"}],
+      tipFmt:p => fluxClass(p.v) + " (" + p.v.toExponential(1) + " W/m²)"
+    });
+  }
+
+  let flareRows = [], flareFilter = "M";
+  function renderFlares(json){
+    flareRows = toRows(json).map(r => ({
+      begin: parseTime(r.begin_time), peak: parseTime(r.max_time), end: parseTime(r.end_time),
+      cls: r.max_class || fluxClass(num(r.max_xrlong)), id: (r.begin_time||"") + (r.max_class||"")
+    })).filter(f => f.peak || f.begin).sort((a,b)=> (b.peak||b.begin) - (a.peak||a.begin));
+    drawFlares();
+    for (const f of flareRows){ const k = String(f.cls||"")[0];
+      if (k === "M" || k === "X") event("flare-" + f.id, `Llamarada solar ${f.cls}`, `Pico: ${fmt(f.peak || f.begin)} (hora Colombia)`); }
+  }
+  function drawFlares(){
+    const keep = f => { const k = String(f.cls||"")[0]; return flareFilter === "all" ? true : flareFilter === "C" ? "CMX".includes(k) : "MX".includes(k); };
+    const list = flareRows.filter(keep);
+    if (!list.length){ $("flares").innerHTML = '<div class="meta">Ninguna llamarada de esa clase en los últimos 7 días.</div>'; return; }
+    $("flares").innerHTML = "<table><thead><tr><th>Clase</th><th>Inicio</th><th>Pico</th><th>Fin</th></tr></thead><tbody>" +
+      list.map(f => `<tr><td><span class="tag" style="background:${classColor(f.cls)}">${String(f.cls||"?").replace(/[<>&]/g,"")}</span></td><td>${fmt(f.begin)}</td><td>${fmt(f.peak)}</td><td>${f.end ? fmt(f.end,{hour:"2-digit",minute:"2-digit",hour12:false}) : "en curso"}</td></tr>`).join("") +
+      "</tbody></table>";
+  }
+  $("flareFilter").onclick = e => { const b = e.target.closest("button"); if (!b) return; flareFilter = b.dataset.f;
+    [...$("flareFilter").children].forEach(x => x.classList.toggle("sel", x === b)); drawFlares(); };
+
+  function renderKp(kpJson, fcJson){
+    const obs = toRows(kpJson).map(r => ({t: parseTime(pick(r,"time_tag","time")), v: num(pick(r,"kp","kp_index","estimated_kp"))})).filter(p => p.t && p.v != null);
+    let fc = [];
+    if (fcJson){ const lastObs = obs.length ? +obs[obs.length-1].t : 0;
+      fc = toRows(fcJson).filter(r => String(r.observed||"").toLowerCase() === "predicted")
+        .map(r => ({t: parseTime(r.time_tag), v: num(r.kp), dashed:true})).filter(p => p.t && +p.t > lastObs && p.v != null); }
+    const pts = obs.concat(fc).map(p => Object.assign(p, {color:kpColor(p.v)}));
+    const last = obs[obs.length-1];
+    if (last){ const g = kpToG(last.v);
+      setCard("cardKp", last.v.toFixed(2).replace(/\.?0+$/,""), (g ? "Tormenta G"+g : last.v >= 4 ? "Activo" : "Tranquilo") + " · " + fmt(last.t,{hour:"2-digit",minute:"2-digit",hour12:false}), kpColor(last.v));
+      if (last.v >= 5) event("kp-" + (+last.t), `Tormenta geomagnética: Kp ${last.v}`, `Equivale a G${g}`); }
+    const maxFc = fc.reduce((a,p)=> Math.max(a,p.v), 0);
+    if (maxFc >= 5) event("kpfc-" + Math.round(maxFc) + "-" + (fc[0] ? +fc[0].t : 0), `Pronóstico: Kp hasta ${maxFc}`, `NOAA prevé tormenta G${kpToG(maxFc)} en los próximos días`);
+    chart($("chKp"), [{points:pts, color:css("--ok"), bars:true}], {yMin:0, yMax:9, height:220, yTicks:[0,3,5,7,9],
+      tipFmt:p => "Kp " + p.v + (p.dashed ? " (pronóstico)" : "") + (kpToG(p.v) ? " · G" + kpToG(p.v) : "")});
+  }
+
+  function renderWind(plasma, mag){
+    const P = plasma ? windRows(plasma).map(r => ({t: r._t, v: num(pick(r, "speed", "proton_speed")), dens: num(pick(r, "density", "proton_density"))})) : [];
+    const M = mag ? windRows(mag).map(r => ({t: r._t, v: num(r.bz_gsm), bt: num(r.bt)})) : [];
+    const lastS = [...P].reverse().find(p => p.v != null), lastB = [...M].reverse().find(p => p.v != null);
+    if (lastS){
+      const bz = lastB ? lastB.v : null;
+      const danger = lastS.v >= 600 && bz != null && bz <= -10, warn = lastS.v >= 500 || (bz != null && bz <= -5);
+      setCard("cardSW", Math.round(lastS.v) + " km/s", "Bz " + (bz != null ? bz.toFixed(1) + " nT" : "—") + (danger ? " · ¡llegada de tormenta!" : bz != null && bz < 0 ? " · al sur (favorece tormenta)" : ""),
+        danger ? css("--g4") : warn ? css("--g2") : css("--ok"));
+      if (danger) event("sw-" + Math.floor(+lastS.t / 36e5), "Viento solar intenso", `Velocidad ${Math.round(lastS.v)} km/s y Bz ${bz.toFixed(1)} nT: posible tormenta entrando`);
+    }
+    chart($("chSpeed"), [{points:P, color:css("--blue")}], {height:150, unit:" km/s", yMin:250, yMax:Math.max(800, ...P.map(p=>p.v||0)),
+      yTicks:[300,400,500,600,700,800,1000,1200], bands:[{from:600,to:3000,color:css("--g3"),label:"rápido"}], tipFmt:p => Math.round(p.v) + " km/s" + (p.dens!=null ? " · " + p.dens.toFixed(1) + " p/cm³" : "")});
+    const bzAbs = Math.max(15, ...M.map(p => Math.abs(p.v||0)));
+    chart($("chBz"), [{points:M, color:css("--accent")}], {height:150, unit:" nT", yMin:-bzAbs, yMax:bzAbs, zero:true,
+      bands:[{from:-200,to:-10,color:css("--g4"),label:"Bz sur fuerte"}], tipFmt:p => "Bz " + p.v.toFixed(1) + " nT" + (p.bt!=null ? " · Bt " + p.bt.toFixed(1) : "")});
+  }
+
+  function renderAlerts(json){
+    const rows = toRows(json).map(r => ({id: r.product_id, t: parseTime(r.issue_datetime), msg: String(r.message||"")}))
+      .filter(a => a.t).sort((a,b)=> b.t - a.t);
+    const typeOf = m => { const s = m.toUpperCase();
+      if (/\bWARNING\b/.test(s)) return ["AVISO", css("--g3")]; if (/\bWATCH\b/.test(s)) return ["VIGILANCIA", css("--g2")];
+      if (/\bALERT\b/.test(s)) return ["ALERTA", css("--g4")]; if (/SUMMARY/.test(s)) return ["RESUMEN", "#8b949e"];
+      if (/CANCEL/.test(s)) return ["CANCELACIÓN", "#8b949e"]; return ["MENSAJE", "#8b949e"]; };
+    const titleOf = m => { const line = m.split(/\r?\n/).find(l => /^(ALERT|WARNING|WATCH|SUMMARY|CANCEL|EXTENDED WARNING|CONTINUED ALERT)/i.test(l.trim()));
+      return (line || m.split(/\r?\n/).find(l => l.trim()) || "").trim(); };
+    if (!rows.length){ $("alerts").innerHTML = '<div class="meta">Sin mensajes recientes.</div>'; return; }
+    const box = $("alerts"); box.innerHTML = "";
+    for (const a of rows.slice(0, 60)){
+      const [tipo, col] = typeOf(a.msg);
+      const d = document.createElement("details"); d.className = "alert";
+      const s = document.createElement("summary");
+      const tag = document.createElement("span"); tag.className = "tag"; tag.style.background = col; tag.textContent = tipo;
+      const w = document.createElement("span"); w.className = "when"; w.textContent = "  " + fmt(a.t) + "  ";
+      const tt = document.createElement("div"); tt.textContent = titleOf(a.msg); tt.style.marginTop = "3px";
+      s.append(tag, w, tt);
+      const pre = document.createElement("pre"); pre.textContent = a.msg;
+      d.append(s, pre); box.appendChild(d);
+      if (tipo !== "RESUMEN" && tipo !== "CANCELACIÓN") event("alert-" + a.id + "-" + (+a.t), `NOAA ${tipo}`, titleOf(a.msg));
+    }
+  }
+
+  function renderProbs(json){
+    const rows = toRows(json); if (!rows.length){ $("probs").innerHTML = ""; return; }
+    rows.sort((a,b) => String(a.date).localeCompare(String(b.date)));
+    const r = rows[rows.length - 1] && rows.find(x => x.c_class_1_day != null) ? rows.filter(x => x.c_class_1_day != null).slice(-1)[0] : null;
+    if (!r){ $("probs").innerHTML = ""; return; }
+    const v = k => r[k] != null ? r[k] + " %" : "—";
+    $("probs").innerHTML = `<div class="sub" style="margin:0 0 4px">Probabilidad de llamarada en las próximas 24 h</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <span class="tag" style="background:${css("--g1")}">C: ${v("c_class_1_day")}</span>
+        <span class="tag" style="background:${css("--g3")}">M: ${v("m_class_1_day")}</span>
+        <span class="tag" style="background:${css("--g5")}">X: ${v("x_class_1_day")}</span></div>`;
+  }
+
+  // ---------- historial local (IndexedDB) + CSV ----------
+  const BACKFILL = {
+    xray7:   "json/goes/primary/xrays-7-day.json",
+    plasma7: ["products/solar-wind/plasma-7-day.json", "json/rtsw/rtsw_wind_1m.json"],
+    mag7:    ["products/solar-wind/mag-7-day.json", "json/rtsw/rtsw_mag_1m.json"]
+  };
+  Object.assign(URLS, BACKFILL);   // getJSON las reconoce; no se cargan en el ciclo normal
+  const MAIN_KEYS = ["scales","xray","flares","kp","kpfc","plasma","mag","alerts","probs"];
+  let lastBackfill = 0;
+
+  const STORES = ["xray","kp","viento","mag","llamaradas","alertas","escalas"];
+  let dbp = null;
+  function openDB(){
+    if (dbp) return dbp;
+    dbp = new Promise((res, rej) => {
+      if (!window.indexedDB) return rej(new Error("Este navegador no permite guardar historial"));
+      const r = indexedDB.open("monitorSolarHist", 1);
+      r.onupgradeneeded = () => { const db = r.result;
+        for (const s of STORES) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, {keyPath:"k"});
+        if (!db.objectStoreNames.contains("cfg")) db.createObjectStore("cfg"); };
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error("base de datos bloqueada"));
+      setTimeout(() => rej(new Error("el navegador no respondió al abrir el historial")), 8000);
+    });
+    dbp.catch(() => { dbp = null; });
+    return dbp;
+  }
+  async function putMany(store, rows){
+    if (!rows.length) return; const db = await openDB();
+    await new Promise((res, rej) => { const tx = db.transaction(store, "readwrite"), os = tx.objectStore(store);
+      for (const r of rows) os.put(r); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+  }
+  async function getAll(store){ const db = await openDB();
+    return new Promise((res, rej) => { const r = db.transaction(store).objectStore(store).getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+  async function count(store){ const db = await openDB();
+    return new Promise((res, rej) => { const r = db.transaction(store).objectStore(store).count(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+  async function edge(store, dir){ const db = await openDB();
+    return new Promise((res) => { const r = db.transaction(store).objectStore(store).openCursor(null, dir); r.onsuccess = () => res(r.result ? r.result.value : null); r.onerror = () => res(null); }); }
+  async function cfgGet(k){ const db = await openDB();
+    return new Promise((res) => { const r = db.transaction("cfg").objectStore("cfg").get(k); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }); }
+  async function cfgSet(k, v){ const db = await openDB();
+    return new Promise((res, rej) => { const tx = db.transaction("cfg", "readwrite"); tx.objectStore("cfg").put(v, k); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); }
+
+  function windAll(json){
+    let rows = toRows(json);
+    if (rows.some(r => r.active !== undefined)) rows = rows.filter(r => r.active === true || r.active === "true" || r.active === 1);
+    return rows.map(r => Object.assign(r, {_t: parseTime(r.time_tag)})).filter(r => r._t);
+  }
+  const EXTRACT = {
+    xray: j => { const m = new Map();
+      for (const r of toRows(j)){ const t = parseTime(r.time_tag); if (!t) continue; const k = +t, f = num(pick(r, "flux", "observed_flux"));
+        const o = m.get(k) || {k}; if (String(r.energy||"").includes("0.1-0.8")) o.largo = f; else if (String(r.energy||"").includes("0.05-0.4")) o.corto = f; m.set(k, o); }
+      return [...m.values()].filter(o => o.largo != null || o.corto != null); },
+    kp: j => toRows(j).map(r => { const t = parseTime(pick(r,"time_tag","time")); return t ? {k:+t, kp:num(pick(r,"kp","kp_index","estimated_kp")), a:num(pick(r,"a_running","arunning")), estaciones:num(pick(r,"station_count"))} : null; }).filter(o => o && o.kp != null),
+    viento: j => windAll(j).map(r => ({k:+r._t, velocidad:num(pick(r,"speed","proton_speed")), densidad:num(pick(r,"density","proton_density")), temperatura:num(pick(r,"temperature","proton_temperature"))})).filter(o => o.velocidad != null || o.densidad != null),
+    mag: j => windAll(j).map(r => ({k:+r._t, bx:num(r.bx_gsm), by:num(r.by_gsm), bz:num(r.bz_gsm), bt:num(r.bt)})).filter(o => o.bz != null),
+    llamaradas: j => toRows(j).map(r => { const b = parseTime(r.begin_time), p = parseTime(r.max_time), e = parseTime(r.end_time); const k = b || p; if (!k) return null;
+      return {k:+k, inicio:b?+b:null, pico:p?+p:null, fin:e?+e:null, clase:r.max_class || fluxClass(num(r.max_xrlong)), flujo_pico:num(r.max_xrlong), clase_inicio:r.begin_class || "", satelite:r.satellite ?? ""}; }).filter(Boolean),
+    alertas: j => toRows(j).map(r => { const t = parseTime(r.issue_datetime); if (!t) return null; const msg = String(r.message||"");
+      const tl = (msg.split(/\r?\n/).find(l => /^(ALERT|WARNING|WATCH|SUMMARY|CANCEL|EXTENDED WARNING|CONTINUED ALERT)/i.test(l.trim())) || "").trim();
+      const code = (msg.match(/Message Code:\s*(\S+)/i) || [])[1] || "";
+      return {k: r.product_id + "|" + (+t), t:+t, producto:r.product_id, codigo:code, titulo:tl, mensaje:msg}; }).filter(Boolean),
+    escalas: j => { const n = j["0"] || {}; const t = parseTime((n.DateStamp||"") + "T" + (n.TimeStamp||"00:00:00") + "Z"); if (!t) return [];
+      const o = {k:+t, R:num((n.R||{}).Scale), S:num((n.S||{}).Scale), G:num((n.G||{}).Scale)};
+      ["1","2","3"].forEach(d => { const x = j[d] || {}; o["d"+d+"_fecha"] = x.DateStamp || ""; o["d"+d+"_probR1R2"] = num((x.R||{}).MinorProb);
+        o["d"+d+"_probR3"] = num((x.R||{}).MajorProb); o["d"+d+"_probS1"] = num((x.S||{}).Prob); o["d"+d+"_G"] = num((x.G||{}).Scale); });
+      return [o]; }
+  };
+  async function saveHistory(d){
+    const jobs = [];
+    const add = (store, json) => { if (json) { try { jobs.push(putMany(store, EXTRACT[store](json))); } catch(e){ console.error(e); } } };
+    add("xray", d.xray); add("xray", d.xray7); add("kp", d.kp);
+    add("viento", d.plasma); add("viento", d.plasma7); add("mag", d.mag); add("mag", d.mag7);
+    add("llamaradas", d.flares); add("alertas", d.alerts); add("escalas", d.scales);
+    await Promise.all(jobs);
+  }
+
+  // CSV pensado para Excel en español: separador ";" y coma decimal, con BOM UTF-8
+  const COL = 5 * 36e5;
+  const fLoc = ms => ms == null ? "" : new Date(ms - COL).toISOString().slice(0,16).replace("T"," ");
+  const fUtc = ms => ms == null ? "" : new Date(ms).toISOString().slice(0,16).replace("T"," ");
+  const dec = v => v == null || v === "" ? "" : String(v).replace(".", ",");
+  const sci = v => v == null ? "" : v.toExponential(3).replace(".", ",").toUpperCase();
+  const cell = v => { const s = String(v ?? ""); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const CSV = {
+    xray:       {file:"rayos_x.csv", nombre:"Rayos X (1 min)", head:["fecha_colombia","fecha_utc","flujo_0.1-0.8nm_Wm2","clase","flujo_0.05-0.4nm_Wm2"],
+                 row:r => [fLoc(r.k), fUtc(r.k), sci(r.largo), r.largo ? fluxClass(r.largo) : "", sci(r.corto)]},
+    kp:         {file:"indice_kp.csv", nombre:"Índice Kp (3 h)", head:["fecha_colombia","fecha_utc","kp","escala_G","a_running","estaciones"],
+                 row:r => [fLoc(r.k), fUtc(r.k), dec(r.kp), "G" + kpToG(r.kp), dec(r.a), dec(r.estaciones)]},
+    viento:     {file:"viento_solar.csv", nombre:"Viento solar (1 min)", head:["fecha_colombia","fecha_utc","velocidad_kms","densidad_pcm3","temperatura_K"],
+                 row:r => [fLoc(r.k), fUtc(r.k), dec(r.velocidad), dec(r.densidad), dec(r.temperatura)]},
+    mag:        {file:"campo_magnetico.csv", nombre:"Campo magnético (1 min)", head:["fecha_colombia","fecha_utc","bx_nT","by_nT","bz_nT","bt_nT"],
+                 row:r => [fLoc(r.k), fUtc(r.k), dec(r.bx), dec(r.by), dec(r.bz), dec(r.bt)]},
+    llamaradas: {file:"llamaradas.csv", nombre:"Llamaradas", head:["inicio_colombia","pico_colombia","fin_colombia","clase","letra","flujo_pico_Wm2","inicio_utc"],
+                 row:r => [fLoc(r.inicio), fLoc(r.pico), fLoc(r.fin), r.clase, String(r.clase||"")[0] || "", sci(r.flujo_pico), fUtc(r.inicio)]},
+    alertas:    {file:"alertas_noaa.csv", nombre:"Alertas NOAA", head:["emitida_colombia","emitida_utc","producto","codigo","titulo","mensaje"],
+                 row:r => [fLoc(r.t), fUtc(r.t), r.producto, r.codigo, r.titulo, r.mensaje.replace(/\r?\n/g, " | ")], sort:(a,b) => a.t - b.t},
+    escalas:    {file:"escalas_y_pronostico.csv", nombre:"Escalas y pronóstico", head:["emitido_colombia","R_actual","S_actual","G_actual",
+                 "d1_fecha","d1_prob_R1R2","d1_prob_R3","d1_prob_S1","d1_G","d2_fecha","d2_prob_R1R2","d2_prob_R3","d2_prob_S1","d2_G","d3_fecha","d3_prob_R1R2","d3_prob_R3","d3_prob_S1","d3_G"],
+                 row:r => [fLoc(r.k), r.R, r.S, r.G, ...["1","2","3"].flatMap(d => [r["d"+d+"_fecha"], dec(r["d"+d+"_probR1R2"]), dec(r["d"+d+"_probR3"]), dec(r["d"+d+"_probS1"]), r["d"+d+"_G"]])]}
+  };
+  async function buildCSV(store){
+    const def = CSV[store]; let rows = await getAll(store); if (def.sort) rows.sort(def.sort);
+    return "﻿" + [def.head.join(";")].concat(rows.map(r => def.row(r).map(cell).join(";"))).join("\r\n") + "\r\n";
+  }
+
+  // Carpeta del equipo (Chrome/Edge): se elige una vez y los CSV se reescriben en cada actualización
+  let dirHandle = null, dirStatus = "none", lastWrite = null, writeErr = "";
+  async function restoreFolder(){
+    try { const h = await cfgGet("carpeta"); if (!h) return; dirHandle = h;
+      dirStatus = (await h.queryPermission({mode:"readwrite"})) === "granted" ? "ok" : "needs"; } catch(e){ dirStatus = "none"; }
+  }
+  async function writeAll(){
+    if (!dirHandle || dirStatus !== "ok") return;
+    try { if ((await dirHandle.queryPermission({mode:"readwrite"})) !== "granted"){ dirStatus = "needs"; return; } } catch(e){ return; }
+    const fails = [];
+    for (const s of Object.keys(CSV)){
+      try { const text = await buildCSV(s); const fh = await dirHandle.getFileHandle(CSV[s].file, {create:true});
+        const w = await fh.createWritable(); await w.write(text); await w.close(); }
+      catch(e){ console.error(e); fails.push(CSV[s].file); }
+    }
+    lastWrite = Date.now();
+    writeErr = fails.length ? "No se pudo escribir " + fails.join(", ") + " (¿está abierto en Excel? ciérralo y se escribirá en la próxima actualización)" : "";
+  }
+  async function pickFolder(){
+    if (!window.showDirectoryPicker){ writeErr = "Tu navegador no permite elegir carpeta: usa Chrome o Edge, o descarga los CSV con los botones."; renderHist(); return; }
+    try { dirHandle = await window.showDirectoryPicker({id:"monitorSolar", mode:"readwrite"}); await cfgSet("carpeta", dirHandle); dirStatus = "ok"; await writeAll(); }
+    catch(e){ if (e && e.name !== "AbortError"){ writeErr = "No se pudo usar la carpeta: " + e.message; } }
+    renderHist();
+  }
+  async function reconnectFolder(){
+    try { if ((await dirHandle.requestPermission({mode:"readwrite"})) === "granted"){ dirStatus = "ok"; await writeAll(); } } catch(e){ writeErr = e.message; }
+    renderHist();
+  }
+  async function downloadCSV(store){
+    const blob = new Blob([await buildCSV(store)], {type:"text/csv;charset=utf-8"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = CSV[store].file;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  async function renderHist(){
+    const st = $("histStatus"), tb = $("histTable");
+    try {
+      const rows = await Promise.all(Object.keys(CSV).map(async s => {
+        const n = await count(s); let a = await edge(s, "next"), b = await edge(s, "prev");
+        if (CSV[s].sort){ const all = (await getAll(s)).sort(CSV[s].sort); a = all[0]; b = all[all.length-1]; }
+        const ta = a ? (a.t ?? a.k) : null, tb2 = b ? (b.t ?? b.k) : null;
+        return {s, n, desde: typeof ta === "number" ? ta : null, hasta: typeof tb2 === "number" ? tb2 : null};
+      }));
+      tb.innerHTML = "";
+      const head = document.createElement("tr"); ["Serie","Archivo","Registros","Desde","Hasta",""].forEach(h => { const th = document.createElement("th"); th.textContent = h; head.appendChild(th); });
+      const thead = document.createElement("thead"); thead.appendChild(head); tb.appendChild(thead);
+      const body = document.createElement("tbody");
+      for (const r of rows){
+        const tr = document.createElement("tr");
+        [CSV[r.s].nombre, CSV[r.s].file, r.n.toLocaleString("es-CO"), r.desde ? fmt(new Date(r.desde)) : "—", r.hasta ? fmt(new Date(r.hasta)) : "—"].forEach(v => { const td = document.createElement("td"); td.textContent = v; tr.appendChild(td); });
+        const td = document.createElement("td"); const b = document.createElement("button"); b.textContent = "Descargar"; b.onclick = () => downloadCSV(r.s); td.appendChild(b); tr.appendChild(td);
+        body.appendChild(tr);
+      }
+      tb.appendChild(body);
+    } catch(e){ tb.innerHTML = ""; st.textContent = "⚠ No se puede guardar historial en este navegador: " + e.message; return; }
+    const btn = $("btnFolder");
+    if (dirStatus === "ok"){ btn.textContent = "Cambiar carpeta"; btn.onclick = pickFolder;
+      st.textContent = `✓ Guardando automáticamente en la carpeta «${dirHandle.name}» cada 5 minutos` + (lastWrite ? " · último guardado " + fmt(new Date(lastWrite), {hour:"2-digit", minute:"2-digit", hour12:false}) : ""); }
+    else if (dirStatus === "needs"){ btn.textContent = "Reconectar carpeta «" + dirHandle.name + "»"; btn.onclick = reconnectFolder;
+      st.textContent = "El navegador pide confirmar el permiso cada vez que abres la página: pulsa «Reconectar carpeta». Mientras tanto el historial se sigue guardando dentro del navegador."; }
+    else { btn.textContent = "Elegir carpeta para los CSV"; btn.onclick = pickFolder;
+      st.textContent = "El historial se está guardando dentro del navegador. Elige una carpeta para que además se escriban los CSV allí automáticamente."; }
+    if (writeErr){ st.textContent += " · ⚠ " + writeErr; }
+  }
+
+  // ---------- ciclo de carga ----------
+  async function load(){
+    $("updated").textContent = "Actualizando…";
+    const keys = MAIN_KEYS.slice();
+    const doBack = Date.now() - lastBackfill > 60*60e3;   // relleno con archivos de 7 días: al abrir y cada hora
+    if (doBack) keys.push("xray7", "plasma7", "mag7");
+    const res = await Promise.allSettled(keys.map(getJSON));
+    const d = {}, errs = [];
+    res.forEach((r,i) => { if (r.status === "fulfilled") d[keys[i]] = r.value; else errs.push(keys[i]); });
+    const safe = (fn, ...a) => { try { fn(...a); } catch(e){ console.error(e); errs.push(fn.name); } };
+    if (d.scales) safe(renderScales, d.scales);
+    if (d.xray) safe(renderXray, d.xray);
+    if (d.flares) safe(renderFlares, d.flares);
+    if (d.kp) safe(renderKp, d.kp, d.kpfc);
+    if (d.plasma || d.mag) safe(renderWind, d.plasma, d.mag);
+    if (d.alerts) safe(renderAlerts, d.alerts);
+    if (d.probs) safe(renderProbs, d.probs);
+    firstLoad = false;
+    for (const k of ["xray7","plasma7","mag7"]){ const i = errs.indexOf(k); if (i >= 0) errs.splice(i, 1); }
+    if (doBack && d.xray7) lastBackfill = Date.now();
+    try { await saveHistory(d); await writeAll(); } catch(e){ console.error(e); }
+    renderHist();
+    const ok = MAIN_KEYS.length - errs.length;
+    $("updated").innerHTML = "";
+    $("updated").textContent = "Última actualización: " + fmt(new Date(), {hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false}) +
+      " (hora Colombia) · próxima en 5 min" + (errs.length ? ` · ⚠ ${errs.length} fuente(s) sin responder: ${errs.join(", ")}` : "");
+    if (!ok) $("updated").textContent = "⚠ No se pudo conectar con la NOAA. Revisa tu internet; se reintentará en 5 minutos.";
+    Object.assign(state, d);
+  }
+  $("btnRefresh").onclick = load;
+  let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => {
+    if (state.xray) renderXray(state.xray); if (state.kp) renderKp(state.kp, state.kpfc); if (state.plasma || state.mag) renderWind(state.plasma, state.mag); }, 250); });
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(e){}
+  load(); restoreFolder().then(renderHist); setInterval(load, REFRESH_MS);
+})();
+</script>
+</body>
+</html>
