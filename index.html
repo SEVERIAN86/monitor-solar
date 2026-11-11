@@ -54,6 +54,16 @@
   .filters{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
   .filters button.sel{border-color:var(--accent);color:var(--accent)}
   #banner{display:none;margin:0 0 14px;padding:12px 16px;border-radius:12px;font-weight:600}
+  .hero{display:grid;grid-template-columns:minmax(0,440px) 1fr;gap:20px;align-items:start;margin-bottom:14px}
+  @media (max-width:760px){.hero{grid-template-columns:1fr} header{position:static}}
+  .sunimg{position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:1/1;cursor:zoom-in}
+  .sunimg img{width:100%;height:100%;object-fit:contain;display:block}
+  .sunimg .cap{position:absolute;left:0;right:0;bottom:0;padding:6px 10px;background:linear-gradient(transparent,#000c);font-size:12px;color:#c9d1d9}
+  .sunimg .msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;text-align:center;padding:20px}
+  .chans{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px}
+  .chans button.sel{border-color:var(--accent);color:var(--accent)}
+  #zoom{position:fixed;inset:0;background:#000e;z-index:50;display:none;align-items:center;justify-content:center;cursor:zoom-out}
+  #zoom img{max-width:96vw;max-height:96vh}
 </style>
 </head>
 <body>
@@ -68,6 +78,18 @@
 
 <main>
   <div id="banner"></div>
+
+  <div class="panel hero">
+    <div class="sunimg" id="sunBox"><img id="sunImg" alt="Imagen más reciente del Sol"><div class="msg" id="sunMsg">Cargando imagen…</div><div class="cap" id="sunCap"></div></div>
+    <div>
+      <h2>El Sol ahora</h2>
+      <div class="sub">Imagen más reciente del observatorio solar SDO de la NASA (se renueva cada ~15 min) y del coronógrafo SOHO. Toca la imagen para verla grande.</div>
+      <div class="chans" id="chans"></div>
+      <p class="help" id="chanInfo" style="margin:0"></p>
+      <p class="meta" style="margin-top:10px">Fuente: <a href="https://sdo.gsfc.nasa.gov/data/" style="color:var(--blue)">NASA SDO</a> · <a href="https://soho.nascom.nasa.gov/data/realtime-update.html" style="color:var(--blue)">ESA/NASA SOHO</a></p>
+    </div>
+  </div>
+  <div id="zoom"><img id="zoomImg" alt=""></div>
 
   <div class="grid cards">
     <div class="panel card" id="cardR"><div class="lbl">Apagones de radio (R)</div><div class="val">—</div><div class="desc">Por llamaradas</div></div>
@@ -645,6 +667,37 @@
       st.textContent = "El historial se está guardando dentro del navegador. Elige una carpeta para que además se escriban los CSV allí automáticamente."; }
     if (writeErr){ st.textContent += " · ⚠ " + writeErr; }
   }
+
+  // ---------- imagen del Sol (NASA SDO / SOHO) ----------
+  const SDO = "https://sdo.gsfc.nasa.gov/assets/img/latest/";
+  const CHANNELS = [
+    {id:"193", label:"AIA 193", url:SDO + "latest_1024_0193.jpg", info:"Corona a ~1,2 millones de grados. Las zonas oscuras son agujeros coronales, de donde sale viento solar rápido; las brillantes son regiones activas."},
+    {id:"304", label:"AIA 304", url:SDO + "latest_1024_0304.jpg", info:"Cromosfera y región de transición (~50.000 °C). Muestra filamentos y protuberancias; si un filamento se desprende puede lanzar una CME."},
+    {id:"171", label:"AIA 171", url:SDO + "latest_1024_0171.jpg", info:"Corona tranquila y los arcos magnéticos sobre las regiones activas (~600.000 °C)."},
+    {id:"131", label:"AIA 131 (llamaradas)", url:SDO + "latest_1024_0131.jpg", info:"Plasma muy caliente (~10 millones de grados): aquí las llamaradas se ven como destellos intensos."},
+    {id:"hmi", label:"Manchas solares", url:SDO + "latest_1024_HMIIC.jpg", info:"Luz visible (HMI intensitygram): las manchas oscuras son las regiones donde nacen las llamaradas."},
+    {id:"mag", label:"Magnetograma", url:SDO + "latest_1024_HMIB.jpg", info:"Polaridad magnética (blanco/negro). Regiones con polaridades mezcladas y apretadas son las más propensas a llamaradas grandes."},
+    {id:"c2", label:"SOHO C2 (CME)", url:"https://soho.nascom.nasa.gov/data/realtime/c2/1024/latest.jpg", info:"Coronógrafo: el disco del Sol está tapado (círculo blanco). Una nube que se expande en todas direcciones (\"halo\") indica una CME que viene hacia la Tierra."},
+    {id:"c3", label:"SOHO C3 (CME)", url:"https://soho.nascom.nasa.gov/data/realtime/c3/1024/latest.jpg", info:"Coronógrafo de campo amplio: sigue a las CME más lejos del Sol. Los puntos brillantes de fondo son estrellas y planetas."}
+  ];
+  let chan; try { chan = localStorage.getItem("monitorSolar.chan"); } catch(e){}
+  if (!CHANNELS.some(c => c.id === chan)) chan = "193";
+  function showSun(){
+    const c = CHANNELS.find(x => x.id === chan), img = $("sunImg");
+    $("sunMsg").style.display = "flex"; $("sunMsg").textContent = "Cargando imagen…";
+    img.style.visibility = "hidden";
+    img.onload = () => { $("sunMsg").style.display = "none"; img.style.visibility = "visible";
+      $("sunCap").textContent = c.label + " · cargada " + fmt(new Date(), {hour:"2-digit", minute:"2-digit", hour12:false}); };
+    img.onerror = () => { $("sunMsg").style.display = "flex"; $("sunMsg").textContent = "La NASA no entregó esta imagen ahora. Prueba otro filtro o espera unos minutos."; $("sunCap").textContent = ""; };
+    img.src = c.url + "?t=" + Math.floor(Date.now() / 6e5);   // evita la caché, como mucho cada 10 min
+    $("chanInfo").textContent = c.info;
+    [...$("chans").children].forEach(b => b.classList.toggle("sel", b.dataset.id === chan));
+  }
+  for (const c of CHANNELS){ const b = document.createElement("button"); b.textContent = c.label; b.dataset.id = c.id;
+    b.onclick = () => { chan = c.id; try { localStorage.setItem("monitorSolar.chan", chan); } catch(e){} showSun(); }; $("chans").appendChild(b); }
+  $("sunBox").onclick = () => { if (!$("sunImg").naturalWidth) return; $("zoomImg").src = $("sunImg").src; $("zoom").style.display = "flex"; };
+  $("zoom").onclick = () => { $("zoom").style.display = "none"; };
+  showSun(); setInterval(showSun, 15 * 60e3);
 
   // ---------- ciclo de carga ----------
   async function load(){
